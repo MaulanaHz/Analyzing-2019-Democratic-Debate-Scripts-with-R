@@ -1,0 +1,249 @@
+```{r}
+# Load libraries
+library(tidyverse) # data manipulation
+library(tm) # text mining
+library(wordcloud) # word cloud generator
+library(wordcloud2) # word cloud generator
+library(tidytext) # text mining for word processing and sentiment analysis
+library(reshape2) # reshapes a data frame
+library(radarchart) # drawing the radar chart from a data frame
+library(RWeka) # data mining tasks
+library(knitr) # dynamic report generation
+library(ggimage) # supports image files and graphic objects to be visualized in 'ggplot2'
+library(magick) # advanced Image-Processing
+library(memery) # used for generating internet memes suited specifically to data analysts
+library(gridExtra) # miscellaneous Functions for "Grid" Graphics
+library(grid) # add Grid to a Plot
+```
+
+```{r}
+# Read the data
+debate <- read_csv("D:/External/Courses/I7.BigData/Pertemuan 15/Tugas/input/2020 Debate Transcripts.csv")
+```
+
+```{r}
+# Read the Lexicons (for sentiment classification)
+bing <- read_csv("D:/External/Courses/I7.BigData/Pertemuan 15/Tugas/input/bing-nrc-afinn-lexicons/Bing.csv")
+nrc <- read_csv("D:/External/Courses/I7.BigData/Pertemuan 15/Tugas/input/bing-nrc-afinn-lexicons/NRC.csv")
+afinn <- read_csv("D:/External/Courses/I7.BigData/Pertemuan 15/Tugas/input/bing-nrc-afinn-lexicons/Afinn.csv")
+```
+## Episode IV
+```{r}
+# Show Structure
+str(debate)
+```
+
+```{r}
+# Text transformations
+cleanCorpus <- function(corpus){
+  corpus.tmp <- tm_map(corpus, removePunctuation)
+  corpus.tmp <- tm_map(corpus.tmp, stripWhitespace)
+  corpus.tmp <- tm_map(corpus.tmp, content_transformer(tolower))
+  v_stopwords <- c(stopwords("english"), c("thats","weve","hes","theres","ive","im",
+                                           "will","can","cant","dont","youve","us",
+                                           "youre","youll","theyre","whats","didnt"))
+  corpus.tmp <- tm_map(corpus.tmp, removeWords, v_stopwords)
+  corpus.tmp <- tm_map(corpus.tmp, removeNumbers)
+  return(corpus.tmp)
+}
+```
+
+```{r}
+# Most frequent terms 
+frequentTerms <- function(text){
+  s.cor <- Corpus(VectorSource(text))
+  s.cor.cl <- cleanCorpus(s.cor)
+  s.tdm <- TermDocumentMatrix(s.cor.cl)
+  s.tdm <- removeSparseTerms(s.tdm, 0.999)
+  m <- as.matrix(s.tdm)
+  word_freqs <- sort(rowSums(m), decreasing=TRUE)
+  dm <- data.frame(word=names(word_freqs), freq=word_freqs)
+  return(dm)
+}
+```
+
+```{r}
+# Define bigram tokenizer 
+tokenizer  <- function(x){
+  NGramTokenizer(x, Weka_control(min=2, max=2))
+}
+```
+
+```{r message=FALSE, warning=FALSE}
+# Most frequent bigrams 
+frequentBigrams <- function(text){
+  s.cor <- VCorpus(VectorSource(text))
+  s.cor.cl <- cleanCorpus(s.cor)
+  s.tdm <- TermDocumentMatrix(s.cor.cl, control=list(tokenize=tokenizer))
+  s.tdm <- removeSparseTerms(s.tdm, 0.999)
+  m <- as.matrix(s.tdm)
+  word_freqs <- sort(rowSums(m), decreasing=TRUE)
+  dm <- data.frame(word=names(word_freqs), freq=word_freqs)
+  return(dm)
+}
+```
+
+# Analysis
+```{r fig.align='center', message=FALSE, warning=FALSE}
+# How many discourse?
+length(debate$Discourse)
+
+# How many speaker?
+length(levels(debate$Speaker))
+
+# Top 20 characters with more discourse 
+top..chars <- as.data.frame(sort(table(debate$Speaker), decreasing=TRUE))[1:20,]
+
+# Visualization 
+ggplot(data=top..chars, aes(x=Var1, y=Freq)) +
+  geom_bar(stat="identity", fill="#008B8B") +
+  theme_bw() +
+  theme(axis.text.x=element_text(angle=45, hjust=1)) +
+  geom_label(aes(label=paste0(round(Freq, 2)))) +
+  labs(x="Speaker", y="Number of Discourse")
+  image <- image_read("D:/External/Courses/I7.BigData/Pertemuan 15/Tugas/input/logo.jpg") 
+  grid.raster(image, x=0.8, y=0.8, height=0.3)
+```
+
+```{r eval=FALSE, message=FALSE, warning=FALSE}
+# Wordcloud for Debate
+wordcloud2(frequentTerms(debate$Discourse), size=0.5, 
+           shape = 'star')
+wordcloud2(frequentTerms(debate$Discourse), size=0.5, 
+           minRotation = -pi/6, maxRotation = -pi/6, rotateRatio = 1)
+```
+
+```{r message=FALSE, warning=FALSE, fig.align='center'}
+# Most frequent bigrams
+.bigrams <- frequentBigrams(debate$Discourse)[1:20,]
+ggplot(data=.bigrams, aes(x=reorder(word, -freq), y=freq)) +  
+  geom_bar(stat="identity", fill="#B22222") +
+  theme_bw() +
+  theme(axis.text.x=element_text(angle=45, hjust=1)) +
+  geom_label(aes(label=paste0(round(freq, 2)))) +
+  labs(x="Bigram", y="Frequency")
+  image <- image_read("D:/External/Courses/I7.BigData/Pertemuan 15/Tugas/input/logo.jpg") 
+  grid.raster(image, x=0.8, y=0.8, height=0.3)
+```
+
+# **Sentiment analysis**
+```{r message=FALSE, warning=FALSE}
+# Transform the text to a tidy data structure with one token per row
+tokens <- debate %>%  
+  mutate(dialogue=as.character(debate$Discourse)) %>%
+  unnest_tokens(word, dialogue)
+```
+
+```{r message=FALSE, warning=FALSE, fig.align='center'}
+# Positive and negative words
+tokens %>%
+  inner_join(get_sentiments("bing")) %>%
+  count(word, sentiment, sort=TRUE) %>%
+  acast(word ~ sentiment, value.var="n", fill=0) %>%
+  comparison.cloud(colors=c("#F8766D", "#00BFC4"), max.words=100)
+```
+
+```{r message=FALSE, warning=FALSE, fig.align='center'}
+# Sentiments and frequency associated with each word  
+sentiments <- tokens %>% 
+  inner_join(nrc, "word") %>%
+  count(word, sentiment, sort=TRUE) 
+
+# Frequency of each sentiment
+ggplot(data=sentiments, aes(x=reorder(sentiment, -n, sum), y=n)) + 
+  geom_bar(stat="identity", aes(fill=sentiment), show.legend=FALSE) +
+  labs(x="Sentiment", y="Frequency") +
+  theme_bw()
+  image <- image_read("D:/External/Courses/I7.BigData/Pertemuan 15/Tugas/input/logo.jpg") 
+  grid.raster(image, x=0.8, y=0.8, height=0.3)
+```
+
+```{r message=FALSE, warning=FALSE, fig.align='center'}
+# Top 10 terms for each sentiment
+sentiments %>%
+  group_by(sentiment) %>%
+  arrange(desc(n)) %>%
+  slice(1:10) %>%
+  ggplot(aes(x=reorder(word, n), y=n)) +
+  geom_col(aes(fill=sentiment), show.legend=FALSE) +
+  facet_wrap(~sentiment, scales="free_y") +
+  labs(y="Frequency", x="Terms") +
+  coord_flip() +
+  theme_bw()
+  image <- image_read("D:/External/Courses/I7.BigData/Pertemuan 15/Tugas/input/logo.jpg") 
+  grid.raster(image, x=0.87, y=0.12, height=0.18)
+```
+
+## Analysis by Speaker
+```{r message=FALSE, warning=FALSE, fig.align='center'}
+# Sentiment analysis for the Top 28 speaker with more dialogues
+tokens %>%
+  filter(Speaker %in% c("ANNOUNCER","BALART","BENNET","BIDEN","BOOKER","BUTTIGIEG","CASTRO","De Blasio","DELANEY","DIAZ-BALART","GABBARD","GILLIBRAND","GUTHRIE","HARRIS","HICKENLOOPER","HOLT","INSLEE","KLOBUCHAR","MADDOW","O’ROURKE","RYAN","SANDERS","SWALWELL","TODD","WARREN","WILLIAMSON","YANG")) %>%
+  inner_join(nrc, "word") %>%
+  count(Speaker, sentiment, sort=TRUE) %>%
+  ggplot(aes(x=sentiment, y=n)) +
+  geom_col(aes(fill=sentiment), show.legend=FALSE) +
+  facet_wrap(~Speaker, scales="free_x") +
+  labs(x="Sentiment", y="Frequency") +
+  coord_flip() +
+  theme_bw()
+  image <- image_read("D:/External/Courses/I7.BigData/Pertemuan 15/Tugas/input/logo.jpg") 
+  grid.raster(image, x=0.87, y=0.12, height=0.18)
+```
+
+```{r message=FALSE, warning=FALSE, fig.align='center'}
+# Stopwords
+mystopwords <- data_frame(word=c(stopwords("english"), 
+                                 c("thats","weve","hes","theres","ive","im",
+                                   "will","can","cant","dont","youve","us",
+                                   "youre","youll","theyre","whats","didnt")))
+
+# Tokens without stopwords
+top.chars.tokens <- debate %>%
+  mutate(Discourse=as.character(debate$Discourse)) %>%
+  filter(Speaker %in% c("ANNOUNCER","BALART","BENNET","BIDEN","BOOKER","BUTTIGIEG","CASTRO","De Blasio","DELANEY","DIAZ-BALART","GABBARD","GILLIBRAND","GUTHRIE","HARRIS","HICKENLOOPER","HOLT","INSLEE","KLOBUCHAR","MADDOW","O’ROURKE","RYAN","SANDERS","SWALWELL","TODD","WARREN","WILLIAMSON","YANG")) %>%
+  unnest_tokens(word, Discourse) %>%
+  anti_join(mystopwords, by="word")
+
+# Most frequent words for each speaker
+top.chars.tokens %>%
+  count(Speaker, word) %>%
+  group_by(Speaker) %>% 
+  arrange(desc(n)) %>%
+  slice(1:10) %>%
+  ungroup() %>%
+  mutate(word2=factor(paste(word, Speaker, sep="__"), 
+                       levels=rev(paste(word, Speaker, sep="__"))))%>%
+  ggplot(aes(x=word2, y=n)) +
+  geom_col(aes(fill=Speaker), show.legend=FALSE) +
+  facet_wrap(~Speaker, scales="free_y") +
+  labs(x="Sentiment", y="Frequency") +
+  scale_x_discrete(labels=function(x) gsub("__.+$", "", x)) +
+  coord_flip() +
+  theme_bw()
+  image <- image_read("D:/External/Courses/I7.BigData/Pertemuan 15/Tugas/input/logo.jpg") 
+  grid.raster(image, x=0.87, y=0.12, height=0.18)
+```
+
+```{r message=FALSE, warning=FALSE, fig.align='center'}
+# Most relevant words for each speaker
+top.chars.tokens %>%
+  count(Speaker, word) %>%
+  bind_tf_idf(word, Speaker, n) %>%
+  group_by(Speaker) %>% 
+  arrange(desc(tf_idf)) %>%
+  slice(1:10) %>%
+  ungroup() %>%
+  mutate(word2=factor(paste(word, Speaker, sep="__"), 
+                       levels=rev(paste(word, Speaker, sep="__"))))%>%
+  ggplot(aes(x=word2, y=tf_idf)) +
+  geom_col(aes(fill=Speaker), show.legend=FALSE) +
+  facet_wrap(~Speaker, scales="free_y") +
+  theme(axis.text.x=element_text(angle=45, hjust=1)) +
+  labs(y="tf–idf", x="Sentiment") +
+  scale_x_discrete(labels=function(x) gsub("__.+$", "", x)) +
+  coord_flip() +
+  theme_bw()
+  image <- image_read("D:/External/Courses/I7.BigData/Pertemuan 15/Tugas/input/logo.jpg") 
+  grid.raster(image, x=0.87, y=0.12, height=0.18)
+```
